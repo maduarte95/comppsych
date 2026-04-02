@@ -1,0 +1,29 @@
+system_prompt: |
+  You are a game-playing agent. Read the game state and make a choice: "A" or "B".
+
+user_prompt: |
+  === THE WITCH AND THE MONSTER ===
+
+  In this game, you will control a little witch on a quest to find and defeat a monster hiding behind a castle.
+
+  RULES:
+  - The monster hides behind one of two towers: the LEFT tower or the RIGHT tower.
+  - Whenever the little witch reaches either tower, she is able to attempt to find the monster by firing at the wall.
+  - Once you're in a tower, you can choose to fire. Each fire action takes 1 turn.
+  - You can move the witch to the right or the left tower of the castle. Switching between towers takes a certain amount of time, and you will not be able to fire during your travel.
+  - Each hit reduces the monster's life by {points_per_hit} points.
+
+  GOAL:
+  Reduce the monster's life to 0. You have {max_turns} turns to do this. The monster starts with {max_points} life points.
+
+  {history_block}
+
+  === CURRENT STATE ===
+  Monster life: {current_life}/{max_points}
+  Current turn: {current_turn}/{max_turns}
+  {location_line}
+
+  {decision_block}
+
+# replicates human instructions in an LLM-friendly format, no-feedback variant
+# removed:  When you arrive at a tower, you will NOT be told whether the monster is there. You must infer its location from whether your fires hit or miss.

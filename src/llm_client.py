@@ -20,6 +20,7 @@ class LLMResponse:
     choice: str  # "A" or "B"
     raw_response: str
     parse_attempts: int
+    thinking: str | None = None  # Thinking content if thinking mode enabled
 
 
 @dataclass
@@ -31,11 +32,19 @@ class ParseError:
     attempt: int
 
 
+@dataclass
+class CompletionResult:
+    """Result from a single LLM completion call."""
+
+    text: str  # The text response (JSON with choice)
+    thinking: str | None = None  # Thinking content if enabled
+
+
 class LLMClient(ABC):
     """Abstract base class for LLM clients."""
 
     @abstractmethod
-    def complete(self, system: str, user: str) -> str:
+    def complete(self, system: str, user: str) -> CompletionResult:
         """Send a completion request to the LLM.
 
         Args:
@@ -43,7 +52,7 @@ class LLMClient(ABC):
             user: User prompt
 
         Returns:
-            Raw response text from the LLM
+            CompletionResult with text response and optional thinking
         """
         pass
 
@@ -72,27 +81,47 @@ class LLMClient(ABC):
         errors: list[ParseError] = []
 
         for attempt in range(1, max_retries + 1):
-            raw_response = self.complete(system, user)
-            choice = self._parse_choice(raw_response)
+            # Debug: Print full prompt
+            print("\n" + "=" * 80)
+            print(f"LLM CALL (attempt {attempt}/{max_retries})")
+            print("=" * 80)
+            print("\n--- SYSTEM PROMPT ---")
+            print(system)
+            print("\n--- USER PROMPT ---")
+            print(user)
+            print("-" * 80)
+
+            result = self.complete(system, user)
+
+            # Debug: Print full response
+            if result.thinking:
+                print("\n--- THINKING ---")
+                print(result.thinking)
+            print("\n--- RESPONSE ---")
+            print(result.text)
+            print("=" * 80 + "\n")
+
+            choice = self._parse_choice(result.text)
 
             if choice is not None:
                 return (
                     LLMResponse(
                         choice=choice,
-                        raw_response=raw_response,
+                        raw_response=result.text,
                         parse_attempts=attempt,
+                        thinking=result.thinking,
                     ),
                     errors,
                 )
 
             error = ParseError(
-                raw_response=raw_response,
-                error_message=f"Could not parse choice from response",
+                raw_response=result.text,
+                error_message="Could not parse choice from response",
                 attempt=attempt,
             )
             errors.append(error)
             logger.warning(
-                f"Parse error (attempt {attempt}/{max_retries}): {raw_response[:100]}"
+                f"Parse error (attempt {attempt}/{max_retries}): {result.text[:100]}"
             )
 
         return None, errors
@@ -100,7 +129,7 @@ class LLMClient(ABC):
     def _parse_choice(self, response: str) -> str | None:
         """Parse choice from LLM response.
 
-        Expects JSON like {"choice": "A"} or {"choice": "B"}
+        Expects structured JSON output ({"choice": "A"} or {"choice": "B"}).
 
         Args:
             response: Raw LLM response
@@ -108,7 +137,6 @@ class LLMClient(ABC):
         Returns:
             "A" or "B" if successfully parsed, None otherwise
         """
-        # Try to find JSON in response
         # First try direct JSON parse
         try:
             data = json.loads(response.strip())
@@ -143,6 +171,9 @@ class AnthropicClient(LLMClient):
         "claude-opus-4-6",
     ]
 
+    # Models that support adaptive thinking (4.6 models)
+    ADAPTIVE_THINKING_MODELS = ["claude-sonnet-4-6", "claude-opus-4-6"]
+
     # JSON schema for structured output - guarantees {"choice": "A"} or {"choice": "B"}
     CHOICE_SCHEMA = {
         "type": "object",
@@ -166,36 +197,90 @@ class AnthropicClient(LLMClient):
         self.params = params
         self.client = Anthropic(api_key=api_key)
 
-    def complete(self, system: str, user: str) -> str:
-        """Send a completion request to Claude with structured output.
+    def _supports_adaptive_thinking(self) -> bool:
+        """Check if current model supports adaptive thinking."""
+        return self.params.model in self.ADAPTIVE_THINKING_MODELS
 
-        Uses output_config to guarantee valid JSON response.
+    def _get_thinking_config(self) -> dict | None:
+        """Get thinking configuration based on params and model support.
+
+        Returns:
+            Thinking config dict or None if disabled
+        """
+        if self.params.thinking_mode == "disabled":
+            return None
+
+        if self.params.thinking_mode == "adaptive":
+            if not self._supports_adaptive_thinking():
+                # Fall back to enabled mode for older models
+                logger.warning(
+                    f"Model {self.params.model} doesn't support adaptive thinking, "
+                    f"using enabled mode with budget_tokens={self.params.thinking_budget}"
+                )
+                return {
+                    "type": "enabled",
+                    "budget_tokens": self.params.thinking_budget,
+                }
+            return {"type": "adaptive"}
+
+        # thinking_mode == "enabled"
+        return {
+            "type": "enabled",
+            "budget_tokens": self.params.thinking_budget,
+        }
+
+    def complete(self, system: str, user: str) -> CompletionResult:
+        """Send a completion request to Claude.
+
+        Supports thinking modes and structured output.
 
         Args:
             system: System prompt
             user: User prompt
 
         Returns:
-            Raw response text (guaranteed to be valid JSON)
+            CompletionResult with text response and optional thinking
         """
-        message = self.client.messages.create(
-            model=self.params.model,
-            max_tokens=self.params.max_tokens,
-            temperature=self.params.temperature,
-            system=system,
-            messages=[{"role": "user", "content": user}],
-            output_config={
+        thinking_config = self._get_thinking_config()
+
+        # Build API call kwargs
+        kwargs: dict = {
+            "model": self.params.model,
+            "max_tokens": self.params.max_tokens,
+            "system": system,
+            "messages": [{"role": "user", "content": user}],
+            # Always use structured output - it's compatible with thinking mode
+            # (grammar applies only to final text output, not thinking blocks)
+            "output_config": {
                 "format": {
                     "type": "json_schema",
                     "schema": self.CHOICE_SCHEMA,
                 }
             },
-        )
+        }
 
-        # Extract text from response
-        if message.content and len(message.content) > 0:
-            return message.content[0].text
-        return ""
+        # Add thinking config if enabled
+        if thinking_config:
+            kwargs["thinking"] = thinking_config
+            # Thinking is incompatible with temperature modifications
+            # (must use default temperature=1.0)
+        else:
+            # Only set temperature when thinking is disabled
+            kwargs["temperature"] = self.params.temperature
+
+        message = self.client.messages.create(**kwargs)
+
+        # Extract thinking and text from response
+        thinking_content = None
+        text_content = ""
+
+        for block in message.content:
+            if block.type == "thinking":
+                thinking_content = block.thinking
+            elif block.type == "text":
+                text_content = block.text
+
+        return CompletionResult(text=text_content, thinking=thinking_content)
 
     def get_available_models(self) -> list[str]:
         """Get list of available Anthropic models."""
@@ -232,15 +317,17 @@ class OpenRouterClient(LLMClient):
             base_url="https://openrouter.ai/api/v1",
         )
 
-    def complete(self, system: str, user: str) -> str:
+    def complete(self, system: str, user: str) -> CompletionResult:
         """Send a completion request via OpenRouter.
+
+        Note: OpenRouter doesn't support thinking mode.
 
         Args:
             system: System prompt
             user: User prompt
 
         Returns:
-            Raw response text
+            CompletionResult with text response (no thinking support)
         """
         response = self.client.chat.completions.create(
             model=self.params.model,
@@ -252,9 +339,11 @@ class OpenRouterClient(LLMClient):
             ],
         )
 
+        text = ""
         if response.choices and len(response.choices) > 0:
-            return response.choices[0].message.content or ""
-        return ""
+            text = response.choices[0].message.content or ""
+
+        return CompletionResult(text=text, thinking=None)
 
     def get_available_models(self) -> list[str]:
         """Get list of common OpenRouter models."""

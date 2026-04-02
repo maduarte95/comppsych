@@ -103,6 +103,8 @@ class PromptBuilder:
                 return f"Turn {event.turn}: Traveled to {side_name} tower. Monster not spotted! You must go back."
             elif event.outcome == "return":
                 return f"Turn {event.turn}: Traveled back to {side_name} tower."
+            elif event.outcome == "arrived":
+                return f"Turn {event.turn}: Traveled to {side_name} tower."
             elif event.outcome == "traveling":
                 # Mid-travel turn, don't show (or show a brief indicator)
                 return ""
@@ -151,9 +153,10 @@ class PromptBuilder:
         else:
             current = state["current_side"].upper()
             other = "LEFT" if state["current_side"] == "right" else "RIGHT"
+            fire_label = "Fire again" if state["streak"] > 0 else "Fire"
             return (
                 f"What do you do? (Turn {turn})\n"
-                f"A: Fire again at the {current} tower\n"
+                f"A: {fire_label} at the {current} tower\n"
                 f"B: Travel to the {other} tower"
             )
 

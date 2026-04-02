@@ -1,0 +1,7 @@
+true_log_time,prob_flip,prob_rwd,rand_flip,rand_reward,model,score,active_side,side,active_side_poke,reward,protocol,streak,turn,action,outcome,monster_life
+2026-04-01T19:43:39.716985,0.15,0.45,,,claude-haiku-4-5,0,0,1,0,0,custom,0,1,travel,not_spotted,1000
+2026-04-01T19:43:39.716993,0.15,0.45,,,claude-haiku-4-5,0,0,0,1,0,custom,0,2,travel,return,1000
+2026-04-01T19:43:40.716877,0.15,0.45,0.32974507148437904,0.32540475989730144,claude-haiku-4-5,4,0,0,1,1,custom,0,3,fire,hit,996
+2026-04-01T19:43:41.576146,0.15,0.45,0.41856295397950183,0.71105763784657,claude-haiku-4-5,4,0,0,1,0,custom,1,4,fire,miss,996
+2026-04-01T19:43:42.355315,0.15,0.45,0.5859683503054883,0.9355500185948129,claude-haiku-4-5,4,0,0,1,0,custom,2,5,fire,miss,996
+2026-04-01T19:43:43.072169,0.15,0.45,0.6303739822018506,0.9254562263694629,claude-haiku-4-5,4,0,0,1,0,custom,3,6,fire,miss,996

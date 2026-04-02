@@ -29,6 +29,7 @@ st.title("🧙‍♀️ LLM Foraging Task Engine")
 st.markdown("Adapting the Witch Foraging Task (Vertechi et al.) for LLM evaluation")
 
 
+
 def init_session_state() -> None:
     """Initialize session state variables."""
     if "run_complete" not in st.session_state:
@@ -65,13 +66,71 @@ model = st.sidebar.selectbox(
     index=0,
 )
 
-temperature = st.sidebar.slider(
-    "Temperature",
-    min_value=0.0,
-    max_value=1.0,
-    value=0.0,
-    step=0.1,
-)
+# Thinking mode settings (Anthropic only)
+# Must be before temperature since thinking disables temperature control
+if provider == "anthropic":
+    # Determine available thinking modes based on model
+    supports_adaptive = model in AnthropicClient.ADAPTIVE_THINKING_MODELS
+
+    if supports_adaptive:
+        thinking_options = ["disabled", "adaptive", "enabled"]
+        thinking_help = (
+            "disabled: No thinking (default)\n"
+            "adaptive: Claude decides when to think (recommended for 4.6 models)\n"
+            "enabled: Always think with fixed budget"
+        )
+    else:
+        thinking_options = ["disabled", "enabled"]
+        thinking_help = (
+            "disabled: No thinking (default)\n"
+            "enabled: Always think with fixed budget\n"
+            "(Note: adaptive mode requires 4.6 models)"
+        )
+
+    thinking_mode = st.sidebar.selectbox(
+        "Thinking Mode",
+        options=thinking_options,
+        index=0,
+        help=thinking_help,
+    )
+
+    if thinking_mode == "enabled":
+        thinking_budget = st.sidebar.number_input(
+            "Thinking Budget (tokens)",
+            min_value=1000,
+            max_value=100000,
+            value=10000,
+            step=1000,
+            help="Token budget for thinking (only used in 'enabled' mode)",
+        )
+    else:
+        thinking_budget = 10000  # Default, not used in adaptive/disabled
+else:
+    thinking_mode = "disabled"
+    thinking_budget = 10000
+
+# Temperature control - disabled when thinking is enabled
+thinking_enabled = thinking_mode != "disabled"
+
+if thinking_enabled:
+    st.sidebar.slider(
+        "Temperature",
+        min_value=0.0,
+        max_value=1.0,
+        value=1.0,
+        step=0.1,
+        disabled=True,
+        help="Temperature is fixed at 1.0 when thinking mode is enabled",
+    )
+    temperature = 1.0  # Fixed when thinking is enabled
+else:
+    temperature = st.sidebar.slider(
+        "Temperature",
+        min_value=0.0,
+        max_value=1.0,
+        value=0.0,
+        step=0.1,
+    )
 
 # API Key
 api_key_env = (
@@ -115,9 +174,10 @@ if protocol_name == "custom":
     )
     travel_cost = st.sidebar.slider(
         "Travel Cost (turns)",
-        min_value=1,
+        min_value=0,
         max_value=5,
         value=2,
+        help="Set to 0 to disable travel penalty (instant switching)",
     )
     max_points = st.sidebar.number_input(
         "Max Points (monster life)",
@@ -140,6 +200,12 @@ if protocol_name == "custom":
         step=50,
     )
 
+    immediate_feedback = st.sidebar.checkbox(
+        "Immediate Feedback",
+        value=True,
+        help="When enabled, agent is told if the monster is at the tower they traveled to. When disabled, agent must infer monster location from hit/miss patterns.",
+    )
+
     task_params = TaskParams(
         p_reward=p_reward,
         p_switch=p_switch,
@@ -147,6 +213,7 @@ if protocol_name == "custom":
         max_turns=max_turns,
         max_points=max_points,
         points_per_hit=points_per_hit,
+        immediate_feedback=immediate_feedback,
     )
 else:
     task_params = PROTOCOLS[protocol_name]
@@ -158,17 +225,40 @@ else:
     - Max points: {task_params.max_points}
     - Points/hit: {task_params.points_per_hit}
     - Max turns: {task_params.max_turns}
+    - Immediate feedback: {task_params.immediate_feedback}
     """)
 
 # Prompt Settings
 with st.sidebar.expander("Prompt Settings"):
-    prompt_builder = PromptBuilder()
+    # Get available prompt templates from prompts folder
+    prompts_dir = Path("prompts")
+    available_templates = sorted([f.stem for f in prompts_dir.glob("*.yaml")])
+
+    if not available_templates:
+        st.error("No prompt templates found in prompts/ folder")
+        selected_template = "default"
+    else:
+        selected_template = st.selectbox(
+            "Prompt Template",
+            options=available_templates,
+            index=available_templates.index("default") if "default" in available_templates else 0,
+            help="Select a prompt template from the prompts/ folder"
+        )
+
+    # Load the selected template
+    template_path = prompts_dir / f"{selected_template}.yaml"
+    prompt_builder = PromptBuilder(template_path=template_path)
+
     system_prompt = st.text_area(
         "System Prompt",
         value=prompt_builder.system_template,
         height=100,
     )
-    st.markdown("*User prompt is generated dynamically based on game state*")
+
+    # Show user prompt template in an expander (read-only since it uses placeholders)
+    with st.expander("View User Prompt Template"):
+        st.code(prompt_builder.user_template, language="text")
+        st.caption("*User prompt is generated dynamically by filling in placeholders based on game state*")
 
 # Main area
 col1, col2 = st.columns([2, 1])
@@ -210,15 +300,22 @@ if run_button and api_key:
     st.session_state.is_running = True
 
     # Create components
+    # Increase max_tokens when thinking is enabled to allow for response after thinking
+    max_tokens = 16000 if thinking_mode != "disabled" else 64
+
     llm_params = LLMParams(
         provider=provider,
         model=model,
         temperature=temperature,
-        max_tokens=64,
+        max_tokens=max_tokens,
+        thinking_mode=thinking_mode,
+        thinking_budget=thinking_budget,
     )
 
     engine = TaskEngine(task_params)
-    prompt_builder = PromptBuilder()
+    # Use the selected template path from the sidebar
+    template_path = Path("prompts") / f"{selected_template}.yaml"
+    prompt_builder = PromptBuilder(template_path=template_path)
     client = create_client(llm_params, api_key)
     logger = DataLogger(
         output_dir="data",
@@ -271,6 +368,14 @@ if run_button and api_key:
             reason = "error"
             break
 
+        # Log LLM response (including thinking if enabled)
+        logger.save_llm_response(
+            turn=engine.current_turn,
+            choice=response.choice,
+            text=response.raw_response,
+            thinking=response.thinking,
+        )
+
         # Process choice
         result = engine.process_choice(response.choice)
 
@@ -285,6 +390,7 @@ if run_button and api_key:
 
     # Save metadata
     prompts_used = {
+        "template_file": selected_template,
         "system": system_prompt,
         "user_template": prompt_builder.user_template,
     }
@@ -362,7 +468,7 @@ if st.session_state.run_complete and st.session_state.run_results:
 
     # Game log
     st.subheader("Game Log")
-    csv_path, meta_path = logger.get_file_paths()
+    csv_path, meta_path, llm_log_path = logger.get_file_paths()
 
     if csv_path.exists():
         df = pd.read_csv(csv_path)
@@ -462,3 +568,4 @@ if st.session_state.run_complete and st.session_state.run_results:
     st.subheader("Output Files")
     st.markdown(f"- CSV: `{csv_path}`")
     st.markdown(f"- Metadata: `{meta_path}`")
+    st.markdown(f"- LLM Log: `{llm_log_path}`")

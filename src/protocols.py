@@ -39,6 +39,23 @@ PROTOCOLS: dict[str, TaskParams] = {
         max_points=1000,
         points_per_hit=4,
     ),
+    "human": TaskParams(
+        p_reward=0.45,
+        p_switch=0.15,
+        travel_cost=0,
+        max_turns=DEFAULT_MAX_TURNS,
+        max_points=1000,
+        points_per_hit=4,
+    ),
+    "human_no_feedback": TaskParams(
+        p_reward=0.45,
+        p_switch=0.15,
+        travel_cost=0,
+        max_turns=DEFAULT_MAX_TURNS,
+        max_points=1000,
+        points_per_hit=4,
+        immediate_feedback=False,
+    ),
 }
 
 

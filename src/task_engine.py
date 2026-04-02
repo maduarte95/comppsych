@@ -16,7 +16,7 @@ class TurnEvent:
     action: Literal["travel", "fire"]
     side: Side
     active_side: Side
-    outcome: str  # "hit", "miss", "spotted", "not_spotted", "return"
+    outcome: str  # "hit", "miss", "spotted", "not_spotted", "return", "arrived", "traveling"
     reward: bool
     rand_reward: float | None  # Random number used for reward roll
     rand_switch: float | None  # Random number used for switch roll
@@ -131,6 +131,30 @@ class TaskEngine:
 
         # First move always costs 1 turn (symmetric start)
         is_correct = chosen_side == self.active_side
+
+        if not self.params.immediate_feedback:
+            # No feedback mode: agent arrives at chosen tower with no location info
+            event = TurnEvent(
+                turn=self.current_turn,
+                action="travel",
+                side=chosen_side,
+                active_side=self.active_side,
+                outcome="arrived",
+                reward=False,
+                rand_reward=None,
+                rand_switch=None,
+                monster_life=self.monster_life,
+                score=self.score,
+                streak=0,
+            )
+            events.append(event)
+            self.history.append(event)
+            self.current_turn += 1
+            self.current_side = chosen_side
+            self.streak = 0
+            self.bout_rewards = 0
+            game_over, reason = self.is_game_over()
+            return TurnResult(events=events, game_over=game_over, game_over_reason=reason)
 
         if is_correct:
             # Correct choice - monster spotted
@@ -279,6 +303,84 @@ class TaskEngine:
         target_side = self._other_side(self.current_side)
         is_correct = target_side == self.active_side
 
+        if not self.params.immediate_feedback:
+            # No feedback mode: agent travels to target with no location info, no forced return
+            if self.params.travel_cost == 0:
+                event = TurnEvent(
+                    turn=self.current_turn,
+                    action="travel",
+                    side=target_side,
+                    active_side=self.active_side,
+                    outcome="arrived",
+                    reward=False,
+                    rand_reward=None,
+                    rand_switch=None,
+                    monster_life=self.monster_life,
+                    score=self.score,
+                    streak=self.streak,
+                )
+                events.append(event)
+                self.history.append(event)
+                self.current_turn += 1
+            else:
+                for i in range(self.params.travel_cost):
+                    outcome = "arrived" if i == self.params.travel_cost - 1 else "traveling"
+                    event = TurnEvent(
+                        turn=self.current_turn,
+                        action="travel",
+                        side=target_side if i == self.params.travel_cost - 1 else self.current_side,
+                        active_side=self.active_side,
+                        outcome=outcome,
+                        reward=False,
+                        rand_reward=None,
+                        rand_switch=None,
+                        monster_life=self.monster_life,
+                        score=self.score,
+                        streak=self.streak,
+                    )
+                    events.append(event)
+                    self.history.append(event)
+                    self.current_turn += 1
+
+                    if self.current_turn > self.params.max_turns:
+                        game_over, reason = self.is_game_over()
+                        return TurnResult(events=events, game_over=game_over, game_over_reason=reason)
+
+            self.current_side = target_side
+            self.streak = 0
+            self.bout_rewards = 0
+            game_over, reason = self.is_game_over()
+            return TurnResult(events=events, game_over=game_over, game_over_reason=reason)
+
+        if self.params.travel_cost == 0:
+            # Instant switch: no travel turns, but still costs 1 turn to prevent infinite loops
+            outcome = "spotted" if is_correct else "not_spotted"
+            event = TurnEvent(
+                turn=self.current_turn,
+                action="travel",
+                side=target_side,
+                active_side=self.active_side,
+                outcome=outcome,
+                reward=False,
+                rand_reward=None,
+                rand_switch=None,
+                monster_life=self.monster_life,
+                score=self.score,
+                streak=self.streak,
+            )
+            events.append(event)
+            self.history.append(event)
+            self.current_turn += 1
+
+            if is_correct:
+                self.current_side = target_side
+                self.streak = 0
+                self.bout_rewards = 0
+            # If incorrect, player stays put (no forced return with 0 cost)
+
+            game_over, reason = self.is_game_over()
+            return TurnResult(events=events, game_over=game_over, game_over_reason=reason)
+
         # Spend travel_cost turns
         for i in range(self.params.travel_cost):
             if i == self.params.travel_cost - 1:
@@ -387,7 +489,7 @@ class TaskEngine:
         switch_events = [
             e
             for e in self.history
-            if e.action == "travel" and e.outcome in ("spotted", "not_spotted")
+            if e.action == "travel" and e.outcome in ("spotted", "not_spotted", "arrived")
         ]
 
         hits = sum(1 for e in fire_events if e.reward)
@@ -401,10 +503,6 @@ class TaskEngine:
             "total_fires": total_fires,
             "hit_rate": hits / total_fires if total_fires > 0 else 0,
             "total_switches": len(switch_events),
-            "correct_switches": sum(
-                1 for e in switch_events if e.outcome == "spotted"
-            ),
-            "incorrect_switches": sum(
-                1 for e in switch_events if e.outcome == "not_spotted"
-            ),
+            "correct_switches": sum(1 for e in switch_events if e.side == e.active_side),
+            "incorrect_switches": sum(1 for e in switch_events if e.side != e.active_side),
         }

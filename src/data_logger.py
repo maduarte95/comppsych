@@ -39,6 +39,7 @@ class DataLogger:
 
         self.csv_path = self.output_dir / f"{self.base_filename}.csv"
         self.meta_path = self.output_dir / f"{self.base_filename}_meta.json"
+        self.llm_log_path = self.output_dir / f"{self.base_filename}_llm.jsonl"
 
         # Track parse errors
         self.parse_errors: list[dict] = []
@@ -150,16 +151,43 @@ class DataLogger:
             "files": {
                 "csv": str(self.csv_path),
                 "metadata": str(self.meta_path),
+                "llm_log": str(self.llm_log_path),
             },
         }
 
         with open(self.meta_path, "w") as f:
             json.dump(metadata, f, indent=2)
 
-    def get_file_paths(self) -> tuple[Path, Path]:
+    def save_llm_response(
+        self,
+        turn: int,
+        choice: str,
+        text: str,
+        thinking: str | None = None,
+    ) -> None:
+        """Save a single LLM response to JSONL file.
+
+        Args:
+            turn: Turn number
+            choice: Parsed choice ("A" or "B")
+            text: Raw text response from LLM
+            thinking: Thinking content if thinking mode was enabled
+        """
+        record = {
+            "turn": turn,
+            "timestamp": datetime.now().isoformat(),
+            "choice": choice,
+            "text": text,
+            "thinking": thinking,
+        }
+
+        with open(self.llm_log_path, "a") as f:
+            f.write(json.dumps(record) + "\n")
+
+    def get_file_paths(self) -> tuple[Path, Path, Path]:
         """Get paths to output files.
 
         Returns:
-            Tuple of (csv_path, metadata_path)
+            Tuple of (csv_path, metadata_path, llm_log_path)
         """
-        return self.csv_path, self.meta_path
+        return self.csv_path, self.meta_path, self.llm_log_path
