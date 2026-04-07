@@ -56,6 +56,15 @@ PROTOCOLS: dict[str, TaskParams] = {
         points_per_hit=4,
         immediate_feedback=False,
     ),
+    "protocol-1": TaskParams(
+        p_reward=0.45,
+        p_switch=0.15,
+        travel_cost=0,
+        max_turns=500,
+        max_points=400,
+        points_per_hit=10,
+        immediate_feedback=False,
+    ),
 }
 
 

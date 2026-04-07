@@ -66,12 +66,10 @@ model = st.sidebar.selectbox(
     index=0,
 )
 
-# Thinking mode settings (Anthropic only)
-# Must be before temperature since thinking disables temperature control
+# Thinking/Reasoning mode settings
+# Must be before temperature since Anthropic thinking disables temperature control
 if provider == "anthropic":
-    # Determine available thinking modes based on model
     supports_adaptive = model in AnthropicClient.ADAPTIVE_THINKING_MODELS
-
     if supports_adaptive:
         thinking_options = ["disabled", "adaptive", "enabled"]
         thinking_help = (
@@ -86,33 +84,41 @@ if provider == "anthropic":
             "enabled: Always think with fixed budget\n"
             "(Note: adaptive mode requires 4.6 models)"
         )
-
-    thinking_mode = st.sidebar.selectbox(
-        "Thinking Mode",
-        options=thinking_options,
-        index=0,
-        help=thinking_help,
-    )
-
-    if thinking_mode == "enabled":
-        thinking_budget = st.sidebar.number_input(
-            "Thinking Budget (tokens)",
-            min_value=1000,
-            max_value=100000,
-            value=10000,
-            step=1000,
-            help="Token budget for thinking (only used in 'enabled' mode)",
+elif provider == "openrouter":
+    if model in OpenRouterClient.REASONING_MODELS:
+        thinking_options = ["disabled", "adaptive", "enabled"]
+        thinking_help = (
+            "disabled: No reasoning (default)\n"
+            "adaptive: Reasoning with effort=high\n"
+            "enabled: Reasoning with fixed token budget"
         )
     else:
-        thinking_budget = 10000  # Default, not used in adaptive/disabled
-else:
-    thinking_mode = "disabled"
-    thinking_budget = 10000
+        thinking_options = ["disabled"]
+        thinking_help = "This model does not support reasoning."
 
-# Temperature control - disabled when thinking is enabled
+thinking_mode = st.sidebar.selectbox(
+    "Thinking Mode" if provider == "anthropic" else "Reasoning Mode",
+    options=thinking_options,
+    index=0,
+    help=thinking_help,
+)
+
+if thinking_mode == "enabled":
+    thinking_budget = st.sidebar.number_input(
+        "Thinking Budget (tokens)",
+        min_value=1000,
+        max_value=100000,
+        value=10000,
+        step=1000,
+        help="Token budget for thinking/reasoning (only used in 'enabled' mode)",
+    )
+else:
+    thinking_budget = 10000  # Default, not used in adaptive/disabled
+
+# Temperature control - locked to 1.0 for Anthropic when thinking is enabled
 thinking_enabled = thinking_mode != "disabled"
 
-if thinking_enabled:
+if thinking_enabled and provider == "anthropic":
     st.sidebar.slider(
         "Temperature",
         min_value=0.0,
@@ -120,9 +126,9 @@ if thinking_enabled:
         value=1.0,
         step=0.1,
         disabled=True,
-        help="Temperature is fixed at 1.0 when thinking mode is enabled",
+        help="Temperature is fixed at 1.0 when thinking mode is enabled (Anthropic requirement)",
     )
-    temperature = 1.0  # Fixed when thinking is enabled
+    temperature = 1.0
 else:
     temperature = st.sidebar.slider(
         "Temperature",

@@ -290,16 +290,32 @@ class AnthropicClient(LLMClient):
 class OpenRouterClient(LLMClient):
     """OpenRouter API client (uses OpenAI SDK with custom base URL)."""
 
-    # Common models available via OpenRouter
+    # Models available via OpenRouter
     MODELS = [
-        "anthropic/claude-3-5-haiku",
-        "anthropic/claude-3.5-sonnet",
-        "anthropic/claude-3-opus",
-        "openai/gpt-4o",
-        "openai/gpt-4o-mini",
-        "meta-llama/llama-3.1-405b-instruct",
-        "google/gemini-pro-1.5",
+        "qwen/qwen3.5-flash-02-23",
+        "qwen/qwen3.5-397b-a17b",
+        "deepseek/deepseek-v3.2",
+        "google/gemini-2.5-flash-lite",
+        # Legacy models kept for reference:
+        # "anthropic/claude-3-5-haiku",
+        # "anthropic/claude-3.5-sonnet",
+        # "anthropic/claude-3-opus",
+        # "openai/gpt-4o",
+        # "openai/gpt-4o-mini",
+        # "meta-llama/llama-3.1-405b-instruct",
+        # "google/gemini-pro-1.5",
     ]
+
+    # Models that support the OpenRouter reasoning parameter
+    REASONING_MODELS = [
+        "qwen/qwen3.5-flash-02-23",
+        "qwen/qwen3.5-397b-a17b",
+        "deepseek/deepseek-v3.2",
+        "google/gemini-2.5-flash-lite",
+    ]
+
+    # Response format for structured output (json_object is broadly supported across OpenRouter models)
+    CHOICE_RESPONSE_FORMAT = {"type": "json_object"}
 
     def __init__(self, params: LLMParams, api_key: str | None = None) -> None:
         """Initialize OpenRouter client.
@@ -317,33 +333,70 @@ class OpenRouterClient(LLMClient):
             base_url="https://openrouter.ai/api/v1",
         )
 
+    def _supports_reasoning(self) -> bool:
+        """Check if the current model supports the reasoning parameter."""
+        return self.params.model in self.REASONING_MODELS
+
+    def _get_reasoning_config(self) -> dict | None:
+        """Get OpenRouter reasoning config based on thinking_mode param.
+
+        Returns:
+            Reasoning config dict or None if disabled/unsupported
+        """
+        if self.params.thinking_mode == "disabled" or not self._supports_reasoning():
+            return None
+        if self.params.thinking_mode == "adaptive":
+            return {"effort": "high"}
+        # thinking_mode == "enabled"
+        return {"max_tokens": self.params.thinking_budget}
+
     def complete(self, system: str, user: str) -> CompletionResult:
         """Send a completion request via OpenRouter.
 
-        Note: OpenRouter doesn't support thinking mode.
+        Supports structured outputs and reasoning for compatible models.
 
         Args:
             system: System prompt
             user: User prompt
 
         Returns:
-            CompletionResult with text response (no thinking support)
+            CompletionResult with text response and optional reasoning
         """
-        response = self.client.chat.completions.create(
-            model=self.params.model,
-            max_tokens=self.params.max_tokens,
-            temperature=self.params.temperature,
-            messages=[
-                {"role": "system", "content": system},
+        # json_object response_format requires "json" to appear in the messages.
+        # Specify the key name without suggesting a value to avoid biasing the model's choice.
+        system_with_json = system + '\nAlways respond with valid JSON using the key "choice".'
+
+        kwargs: dict = {
+            "model": self.params.model,
+            "max_tokens": self.params.max_tokens,
+            "temperature": self.params.temperature,
+            "messages": [
+                {"role": "system", "content": system_with_json},
                 {"role": "user", "content": user},
             ],
-        )
+            "response_format": self.CHOICE_RESPONSE_FORMAT,
+        }
+
+        reasoning_config = self._get_reasoning_config()
+        if reasoning_config:
+            kwargs["extra_body"] = {"reasoning": reasoning_config}
+
+        response = self.client.chat.completions.create(**kwargs)
 
         text = ""
+        reasoning_text = None
         if response.choices and len(response.choices) > 0:
-            text = response.choices[0].message.content or ""
+            choice = response.choices[0]
+            msg = choice.message
+            text = msg.content or ""
+            # OpenRouter injects reasoning as an extra field not in the OpenAI SDK schema
+            reasoning_text = getattr(msg, "reasoning", None) or (
+                msg.model_extra.get("reasoning") if hasattr(msg, "model_extra") else None
+            )
+            if not text:
+                logger.warning(f"Empty content from OpenRouter (finish_reason={choice.finish_reason})")
 
-        return CompletionResult(text=text, thinking=None)
+        return CompletionResult(text=text, thinking=reasoning_text)
 
     def get_available_models(self) -> list[str]:
         """Get list of common OpenRouter models."""
