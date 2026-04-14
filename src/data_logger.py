@@ -18,6 +18,7 @@ class DataLogger:
         output_dir: Path | str = "data",
         model: str = "unknown",
         protocol: str = "custom",
+        suffix: str = "",
     ) -> None:
         """Initialize the data logger.
 
@@ -25,6 +26,7 @@ class DataLogger:
             output_dir: Directory to save output files
             model: Model name for filename
             protocol: Protocol name for filename
+            suffix: Optional suffix to disambiguate files (e.g. game ID in batch runs)
         """
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
@@ -35,7 +37,8 @@ class DataLogger:
 
         # Sanitize model name for filename
         model_safe = model.replace("/", "-").replace(":", "-")
-        self.base_filename = f"{model_safe}_{protocol}_{self.timestamp}"
+        suffix_part = f"_{suffix}" if suffix else ""
+        self.base_filename = f"{model_safe}_{protocol}_{self.timestamp}{suffix_part}"
 
         self.csv_path = self.output_dir / f"{self.base_filename}.csv"
         self.meta_path = self.output_dir / f"{self.base_filename}_meta.json"
@@ -164,6 +167,7 @@ class DataLogger:
         choice: str,
         text: str,
         thinking: str | None = None,
+        prompt: str | None = None,
     ) -> None:
         """Save a single LLM response to JSONL file.
 
@@ -172,6 +176,7 @@ class DataLogger:
             choice: Parsed choice ("A" or "B")
             text: Raw text response from LLM
             thinking: Thinking content if thinking mode was enabled
+            prompt: User prompt sent to the LLM
         """
         record = {
             "turn": turn,
@@ -179,6 +184,7 @@ class DataLogger:
             "choice": choice,
             "text": text,
             "thinking": thinking,
+            "prompt": prompt,
         }
 
         with open(self.llm_log_path, "a") as f:

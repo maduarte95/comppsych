@@ -45,7 +45,7 @@ class PromptBuilder:
         params = engine.params
 
         # Build dynamic sections
-        history_block = self._build_history_block(engine.history)
+        history_block = self._build_history_block(engine.history, params.max_points)
         location_line = self._build_location_line(state["current_side"])
         decision_block = self._build_decision_block(state)
 
@@ -64,11 +64,12 @@ class PromptBuilder:
 
         return prompt
 
-    def _build_history_block(self, history: list[TurnEvent]) -> str:
+    def _build_history_block(self, history: list[TurnEvent], max_points: int) -> str:
         """Build the game history block.
 
         Args:
             history: List of turn events
+            max_points: Maximum monster life points
 
         Returns:
             Formatted history string
@@ -79,17 +80,18 @@ class PromptBuilder:
         lines = ["=== GAME LOG ==="]
 
         for event in history:
-            line = self._format_event(event)
+            line = self._format_event(event, max_points)
             if line:  # Skip empty lines (traveling mid-turns)
                 lines.append(line)
 
         return "\n".join(lines)
 
-    def _format_event(self, event: TurnEvent) -> str:
+    def _format_event(self, event: TurnEvent, max_points: int) -> str:
         """Format a single turn event.
 
         Args:
             event: Turn event to format
+            max_points: Maximum monster life points
 
         Returns:
             Formatted string for the event
@@ -112,7 +114,7 @@ class PromptBuilder:
             if event.outcome == "hit":
                 return (
                     f"Turn {event.turn}: Fired at {side_name} tower. "
-                    f"Monster appeared — hit! (Monster life: {event.monster_life}/{event.monster_life + 3})"
+                    f"Monster appeared — hit! (Monster life: {event.monster_life}/{max_points})"
                 )
             elif event.outcome == "miss":
                 return f"Turn {event.turn}: Fired at {side_name} tower. Nothing happened."

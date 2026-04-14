@@ -6,7 +6,7 @@ import re
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 
-from anthropic import Anthropic
+from anthropic import Anthropic, AsyncAnthropic
 
 from src.config import LLMParams
 
@@ -46,6 +46,19 @@ class LLMClient(ABC):
     @abstractmethod
     def complete(self, system: str, user: str) -> CompletionResult:
         """Send a completion request to the LLM.
+
+        Args:
+            system: System prompt
+            user: User prompt
+
+        Returns:
+            CompletionResult with text response and optional thinking
+        """
+        pass
+
+    @abstractmethod
+    async def acomplete(self, system: str, user: str) -> CompletionResult:
+        """Async version of complete().
 
         Args:
             system: System prompt
@@ -100,6 +113,40 @@ class LLMClient(ABC):
             print("\n--- RESPONSE ---")
             print(result.text)
             print("=" * 80 + "\n")
+
+            choice = self._parse_choice(result.text)
+
+            if choice is not None:
+                return (
+                    LLMResponse(
+                        choice=choice,
+                        raw_response=result.text,
+                        parse_attempts=attempt,
+                        thinking=result.thinking,
+                    ),
+                    errors,
+                )
+
+            error = ParseError(
+                raw_response=result.text,
+                error_message="Could not parse choice from response",
+                attempt=attempt,
+            )
+            errors.append(error)
+            logger.warning(
+                f"Parse error (attempt {attempt}/{max_retries}): {result.text[:100]}"
+            )
+
+        return None, errors
+
+    async def acomplete_with_retry(
+        self, system: str, user: str, max_retries: int = 3
+    ) -> tuple[LLMResponse | None, list[ParseError]]:
+        """Async version of complete_with_retry()."""
+        errors: list[ParseError] = []
+
+        for attempt in range(1, max_retries + 1):
+            result = await self.acomplete(system, user)
 
             choice = self._parse_choice(result.text)
 
@@ -196,6 +243,7 @@ class AnthropicClient(LLMClient):
         """
         self.params = params
         self.client = Anthropic(api_key=api_key)
+        self.async_client = AsyncAnthropic(api_key=api_key)
 
     def _supports_adaptive_thinking(self) -> bool:
         """Check if current model supports adaptive thinking."""
@@ -282,6 +330,41 @@ class AnthropicClient(LLMClient):
 
         return CompletionResult(text=text_content, thinking=thinking_content)
 
+    async def acomplete(self, system: str, user: str) -> CompletionResult:
+        """Async version of complete() using AsyncAnthropic."""
+        thinking_config = self._get_thinking_config()
+
+        kwargs: dict = {
+            "model": self.params.model,
+            "max_tokens": self.params.max_tokens,
+            "system": system,
+            "messages": [{"role": "user", "content": user}],
+            "output_config": {
+                "format": {
+                    "type": "json_schema",
+                    "schema": self.CHOICE_SCHEMA,
+                }
+            },
+        }
+
+        if thinking_config:
+            kwargs["thinking"] = thinking_config
+        else:
+            kwargs["temperature"] = self.params.temperature
+
+        message = await self.async_client.messages.create(**kwargs)
+
+        thinking_content = None
+        text_content = ""
+
+        for block in message.content:
+            if block.type == "thinking":
+                thinking_content = block.thinking
+            elif block.type == "text":
+                text_content = block.text
+
+        return CompletionResult(text=text_content, thinking=thinking_content)
+
     def get_available_models(self) -> list[str]:
         """Get list of available Anthropic models."""
         return self.MODELS.copy()
@@ -324,11 +407,14 @@ class OpenRouterClient(LLMClient):
             params: LLM parameters
             api_key: OpenRouter API key
         """
-        # Import here to avoid dependency if not using OpenRouter
-        from openai import OpenAI
+        from openai import AsyncOpenAI, OpenAI
 
         self.params = params
         self.client = OpenAI(
+            api_key=api_key,
+            base_url="https://openrouter.ai/api/v1",
+        )
+        self.async_client = AsyncOpenAI(
             api_key=api_key,
             base_url="https://openrouter.ai/api/v1",
         )
@@ -395,6 +481,39 @@ class OpenRouterClient(LLMClient):
             )
             if not text:
                 logger.warning(f"Empty content from OpenRouter (finish_reason={choice.finish_reason})")
+
+        return CompletionResult(text=text, thinking=reasoning_text)
+
+    async def acomplete(self, system: str, user: str) -> CompletionResult:
+        """Async version of complete() using AsyncOpenAI."""
+        system_with_json = system + '\nAlways respond with valid JSON using the key "choice".'
+
+        kwargs: dict = {
+            "model": self.params.model,
+            "max_tokens": self.params.max_tokens,
+            "temperature": self.params.temperature,
+            "messages": [
+                {"role": "system", "content": system_with_json},
+                {"role": "user", "content": user},
+            ],
+            "response_format": self.CHOICE_RESPONSE_FORMAT,
+        }
+
+        reasoning_config = self._get_reasoning_config()
+        if reasoning_config:
+            kwargs["extra_body"] = {"reasoning": reasoning_config}
+
+        response = await self.async_client.chat.completions.create(**kwargs)
+
+        text = ""
+        reasoning_text = None
+        if response.choices and len(response.choices) > 0:
+            choice = response.choices[0]
+            msg = choice.message
+            text = msg.content or ""
+            reasoning_text = getattr(msg, "reasoning", None) or (
+                msg.model_extra.get("reasoning") if hasattr(msg, "model_extra") else None
+            )
 
         return CompletionResult(text=text, thinking=reasoning_text)
 
