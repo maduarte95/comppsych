@@ -429,8 +429,10 @@ class OpenRouterClient(LLMClient):
         Returns:
             Reasoning config dict or None if disabled/unsupported
         """
-        if self.params.thinking_mode == "disabled" or not self._supports_reasoning():
+        if not self._supports_reasoning():
             return None
+        if self.params.thinking_mode == "disabled":
+            return {"enabled": False}
         if self.params.thinking_mode == "adaptive":
             return {"effort": "high"}
         # thinking_mode == "enabled"

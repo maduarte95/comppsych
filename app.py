@@ -74,24 +74,33 @@ if provider == "anthropic":
     if supports_adaptive:
         thinking_options = ["disabled", "adaptive", "enabled"]
         thinking_help = (
-            "disabled: No thinking (default)\n"
-            "adaptive: Claude decides when to think (recommended for 4.6 models)\n"
-            "enabled: Always think with fixed budget"
+            "disabled: No thinking (default).\n"
+            "adaptive: Claude dynamically decides per-request whether to think "
+            "and how much, based on prompt complexity. Also enables interleaved "
+            "thinking between tool calls. Truly dynamic. Requires Opus 4.6 or "
+            "Sonnet 4.6.\n"
+            "enabled: Always think with a fixed token budget (deprecated on 4.6 "
+            "models; prefer adaptive)."
         )
     else:
         thinking_options = ["disabled", "enabled"]
         thinking_help = (
-            "disabled: No thinking (default)\n"
-            "enabled: Always think with fixed budget\n"
-            "(Note: adaptive mode requires 4.6 models)"
+            "disabled: No thinking (default).\n"
+            "enabled: Always think with a fixed token budget.\n"
+            "(Note: adaptive mode requires Opus/Sonnet 4.6.)"
         )
 elif provider == "openrouter":
     if model in OpenRouterClient.REASONING_MODELS:
         thinking_options = ["disabled", "adaptive", "enabled"]
         thinking_help = (
-            "disabled: No reasoning (default)\n"
-            "adaptive: Reasoning with effort=high\n"
-            "enabled: Reasoning with fixed token budget"
+            "disabled: No reasoning (default).\n"
+            "adaptive: NOT truly adaptive for these models. Sends "
+            "reasoning.effort='high', which OpenRouter translates to a fixed "
+            "thinking_budget of ~80% of max_tokens (roughly 12,800 tokens with "
+            "our current max_tokens=16000). The 'Thinking Budget' field below "
+            "is ignored in this mode.\n"
+            "enabled: Reasoning with the fixed token budget set below "
+            "(mapped to Qwen's thinking_budget / equivalent)."
         )
     else:
         thinking_options = ["disabled"]
