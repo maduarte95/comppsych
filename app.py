@@ -354,9 +354,10 @@ if run_button and api_key:
         # Progress elements
         progress_bar = st.progress(0)
         status_text = st.empty()
+        error_box = st.empty()
         status_text.text(f"Running {n_games} games ({max_concurrent} concurrent)...")
 
-        progress_state = {"games_done": 0}
+        progress_state = {"games_done": 0, "failed": []}
 
         def on_game_done(game_id: int, n_total: int, result: dict) -> None:
             progress_state["games_done"] += 1
@@ -368,6 +369,16 @@ if run_button and api_key:
                 f"[{done}/{n_total} done]"
             )
             progress_bar.progress(min(done / n_total, 1.0))
+            if outcome == "error":
+                err_msg = (result.get("error") or "unknown error").splitlines()[0]
+                progress_state["failed"].append((game_id, err_msg))
+                error_box.error(
+                    "**Failed games:**\n"
+                    + "\n".join(
+                        f"- game {gid}: {msg[:200]}"
+                        for gid, msg in progress_state["failed"]
+                    )
+                )
 
         batch_results = run_batch_threaded(
             n_games=n_games,

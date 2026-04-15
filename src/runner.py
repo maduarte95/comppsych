@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import traceback
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
@@ -57,50 +58,56 @@ def run_single_game_sync(
     total_parse_errors = 0
     first_write = True
     reason = None
+    error_details: str | None = None
 
-    while True:
-        game_over, reason = engine.is_game_over()
-        if game_over:
-            break
+    try:
+        while True:
+            game_over, reason = engine.is_game_over()
+            if game_over:
+                break
 
-        if on_turn:
-            on_turn(game_id, engine.current_turn, task_params.max_turns)
+            if on_turn:
+                on_turn(game_id, engine.current_turn, task_params.max_turns)
 
-        user_prompt = prompt_builder.build_user_prompt(engine)
+            user_prompt = prompt_builder.build_user_prompt(engine)
 
-        response, errors = client.complete_with_retry(
-            system=system_prompt,
-            user=user_prompt,
-            max_retries=3,
-        )
-
-        for error in errors:
-            game_logger.add_parse_error(
-                error.raw_response, error.error_message, engine.current_turn
+            response, errors = client.complete_with_retry(
+                system=system_prompt,
+                user=user_prompt,
+                max_retries=3,
             )
-            total_parse_errors += 1
 
-        if response is None:
-            reason = "error"
-            break
+            for error in errors:
+                game_logger.add_parse_error(
+                    error.raw_response, error.error_message, engine.current_turn
+                )
+                total_parse_errors += 1
 
-        game_logger.save_llm_response(
-            turn=engine.current_turn,
-            choice=response.choice,
-            text=response.raw_response,
-            thinking=response.thinking,
-            prompt=user_prompt,
-        )
+            if response is None:
+                reason = "error"
+                break
 
-        result = engine.process_choice(response.choice)
+            game_logger.save_llm_response(
+                turn=engine.current_turn,
+                choice=response.choice,
+                text=response.raw_response,
+                thinking=response.thinking,
+                prompt=user_prompt,
+            )
 
-        for event in result.events:
-            game_logger.save_turn(event, task_params, write_header=first_write)
-            first_write = False
+            result = engine.process_choice(response.choice)
 
-        if result.game_over:
-            reason = result.game_over_reason
-            break
+            for event in result.events:
+                game_logger.save_turn(event, task_params, write_header=first_write)
+                first_write = False
+
+            if result.game_over:
+                reason = result.game_over_reason
+                break
+    except Exception as e:
+        reason = "error"
+        error_details = f"{type(e).__name__} at turn {engine.current_turn}: {e}\n{traceback.format_exc()}"
+        logger.error(f"Game {game_id} crashed: {error_details}")
 
     prompts_used = {
         "template_file": template_path.stem,
@@ -113,6 +120,7 @@ def run_single_game_sync(
         engine=engine,
         outcome=reason or "unknown",
         prompts_used=prompts_used,
+        error=error_details,
     )
 
     stats = engine.get_summary_stats()
@@ -130,6 +138,7 @@ def run_single_game_sync(
         "outcome": reason,
         "stats": stats,
         "parse_errors": total_parse_errors,
+        "error": error_details,
         "csv_path": str(csv_path),
         "meta_path": str(meta_path),
         "llm_log_path": str(llm_log_path),
@@ -243,50 +252,56 @@ async def run_single_game(
     total_parse_errors = 0
     first_write = True
     reason = None
+    error_details: str | None = None
 
-    while True:
-        game_over, reason = engine.is_game_over()
-        if game_over:
-            break
+    try:
+        while True:
+            game_over, reason = engine.is_game_over()
+            if game_over:
+                break
 
-        if on_turn:
-            on_turn(game_id, engine.current_turn, task_params.max_turns)
+            if on_turn:
+                on_turn(game_id, engine.current_turn, task_params.max_turns)
 
-        user_prompt = prompt_builder.build_user_prompt(engine)
+            user_prompt = prompt_builder.build_user_prompt(engine)
 
-        response, errors = await client.acomplete_with_retry(
-            system=system_prompt,
-            user=user_prompt,
-            max_retries=3,
-        )
-
-        for error in errors:
-            game_logger.add_parse_error(
-                error.raw_response, error.error_message, engine.current_turn
+            response, errors = await client.acomplete_with_retry(
+                system=system_prompt,
+                user=user_prompt,
+                max_retries=3,
             )
-            total_parse_errors += 1
 
-        if response is None:
-            reason = "error"
-            break
+            for error in errors:
+                game_logger.add_parse_error(
+                    error.raw_response, error.error_message, engine.current_turn
+                )
+                total_parse_errors += 1
 
-        game_logger.save_llm_response(
-            turn=engine.current_turn,
-            choice=response.choice,
-            text=response.raw_response,
-            thinking=response.thinking,
-            prompt=user_prompt,
-        )
+            if response is None:
+                reason = "error"
+                break
 
-        result = engine.process_choice(response.choice)
+            game_logger.save_llm_response(
+                turn=engine.current_turn,
+                choice=response.choice,
+                text=response.raw_response,
+                thinking=response.thinking,
+                prompt=user_prompt,
+            )
 
-        for event in result.events:
-            game_logger.save_turn(event, task_params, write_header=first_write)
-            first_write = False
+            result = engine.process_choice(response.choice)
 
-        if result.game_over:
-            reason = result.game_over_reason
-            break
+            for event in result.events:
+                game_logger.save_turn(event, task_params, write_header=first_write)
+                first_write = False
+
+            if result.game_over:
+                reason = result.game_over_reason
+                break
+    except Exception as e:
+        reason = "error"
+        error_details = f"{type(e).__name__} at turn {engine.current_turn}: {e}\n{traceback.format_exc()}"
+        logger.error(f"Game {game_id} crashed: {error_details}")
 
     prompts_used = {
         "template_file": template_path.stem,
@@ -299,6 +314,7 @@ async def run_single_game(
         engine=engine,
         outcome=reason or "unknown",
         prompts_used=prompts_used,
+        error=error_details,
     )
 
     stats = engine.get_summary_stats()
@@ -316,6 +332,7 @@ async def run_single_game(
         "outcome": reason,
         "stats": stats,
         "parse_errors": total_parse_errors,
+        "error": error_details,
         "csv_path": str(csv_path),
         "meta_path": str(meta_path),
         "llm_log_path": str(llm_log_path),

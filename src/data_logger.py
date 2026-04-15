@@ -130,6 +130,7 @@ class DataLogger:
         engine: TaskEngine,
         outcome: str,
         prompts_used: dict | None = None,
+        error: str | None = None,
     ) -> None:
         """Save run metadata to JSON.
 
@@ -139,12 +140,14 @@ class DataLogger:
             engine: Task engine (for summary stats)
             outcome: Run outcome ("win", "turn_limit", "error")
             prompts_used: Prompt templates used (optional)
+            error: Exception details / traceback when outcome is "error"
         """
         summary = engine.get_summary_stats()
 
         metadata = {
             "run_timestamp": self.timestamp,
             "outcome": outcome,
+            "error": error,
             "task_params": asdict(task_params),
             "llm_params": asdict(llm_params),
             "summary_stats": summary,

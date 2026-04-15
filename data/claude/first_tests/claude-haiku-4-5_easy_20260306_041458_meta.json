@@ -1,0 +1,76 @@
+{
+  "run_timestamp": "20260306_041458",
+  "outcome": "turn_limit",
+  "task_params": {
+    "p_reward": 0.9,
+    "p_switch": 0.9,
+    "travel_cost": 2,
+    "max_turns": 300,
+    "max_points": 250,
+    "points_per_hit": 3
+  },
+  "llm_params": {
+    "provider": "anthropic",
+    "model": "claude-haiku-4-5",
+    "temperature": 0.7,
+    "max_tokens": 64
+  },
+  "summary_stats": {
+    "total_turns": 300,
+    "final_score": 114,
+    "monster_life_remaining": 136,
+    "total_hits": 38,
+    "total_fires": 227,
+    "hit_rate": 0.16740088105726872,
+    "total_switches": 37,
+    "correct_switches": 37,
+    "incorrect_switches": 0
+  },
+  "parse_error_count": 6,
+  "parse_errors": [
+    {
+      "turn": 126,
+      "raw_response": " ",
+      "error_message": "Could not parse choice from response",
+      "timestamp": "2026-03-06T04:16:34.306850"
+    },
+    {
+      "turn": 142,
+      "raw_response": " ",
+      "error_message": "Could not parse choice from response",
+      "timestamp": "2026-03-06T04:16:51.108720"
+    },
+    {
+      "turn": 156,
+      "raw_response": " ",
+      "error_message": "Could not parse choice from response",
+      "timestamp": "2026-03-06T04:17:05.536537"
+    },
+    {
+      "turn": 241,
+      "raw_response": " ",
+      "error_message": "Could not parse choice from response",
+      "timestamp": "2026-03-06T04:18:18.287868"
+    },
+    {
+      "turn": 243,
+      "raw_response": " ",
+      "error_message": "Could not parse choice from response",
+      "timestamp": "2026-03-06T04:18:23.304211"
+    },
+    {
+      "turn": 259,
+      "raw_response": " {",
+      "error_message": "Could not parse choice from response",
+      "timestamp": "2026-03-06T04:18:42.040455"
+    }
+  ],
+  "prompts_used": {
+    "system": "You are a game-playing agent. Read the game state and make a choice: \"A\" or \"B\".\n",
+    "user_template": "=== THE WITCH AND THE MONSTER ===\n\nYou are a little witch on a quest to defeat a monster hiding behind a castle. The monster hides behind one of two towers: the LEFT tower or the RIGHT tower.\n\nRULES:\n- The monster is always hiding behind exactly one of the two towers.\n- When you fire at the tower where the monster is hiding, it may appear and be hit \u2014 but not always. Sometimes the monster is there but doesn't appear.\n- Each hit reduces the monster's life by {points_per_hit} points.\n- After each time you fire, the monster may secretly switch to the other tower.\n- Traveling to the other tower takes {travel_cost} turn(s) during which you cannot fire.\n- When you arrive at a tower, you will be told whether the monster is there (\"Monster spotted!\") or not (\"Monster not spotted!\").\n- If the monster is NOT at the tower you traveled to, you must travel back. This wastes {travel_cost} extra turns.\n- Each fire action also takes 1 turn.\n\nGOAL:\nReduce the monster's life to 0. You have {max_turns} turns to do this. The monster starts with {max_points} life points.\n\n{history_block}\n\n=== CURRENT STATE ===\nMonster life: {current_life}/{max_points}\nCurrent turn: {current_turn}/{max_turns}\n{location_line}\n\n{decision_block}\n"
+  },
+  "files": {
+    "csv": "data/claude-haiku-4-5_easy_20260306_041458.csv",
+    "metadata": "data/claude-haiku-4-5_easy_20260306_041458_meta.json"
+  }
+}

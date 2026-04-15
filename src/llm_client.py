@@ -25,7 +25,7 @@ class LLMResponse:
 
 @dataclass
 class ParseError:
-    """Record of a parsing error."""
+    """Record of a parse or API error during a retry attempt."""
 
     raw_response: str
     error_message: str
@@ -81,7 +81,7 @@ class LLMClient(ABC):
     def complete_with_retry(
         self, system: str, user: str, max_retries: int = 3
     ) -> tuple[LLMResponse | None, list[ParseError]]:
-        """Complete with retry logic for parse errors.
+        """Complete with retry logic for parse and API errors.
 
         Args:
             system: System prompt
@@ -89,7 +89,7 @@ class LLMClient(ABC):
             max_retries: Maximum number of retry attempts
 
         Returns:
-            Tuple of (LLMResponse or None, list of parse errors)
+            Tuple of (LLMResponse or None, list of errors)
         """
         errors: list[ParseError] = []
 
@@ -104,7 +104,18 @@ class LLMClient(ABC):
             print(user)
             print("-" * 80)
 
-            result = self.complete(system, user)
+            try:
+                result = self.complete(system, user)
+            except Exception as e:
+                error_msg = f"{type(e).__name__}: {e}"
+                errors.append(
+                    ParseError(raw_response="", error_message=error_msg, attempt=attempt)
+                )
+                logger.warning(
+                    f"API error (attempt {attempt}/{max_retries}): {error_msg}"
+                )
+                print(f"\n--- API ERROR ---\n{error_msg}\n" + "=" * 80 + "\n")
+                continue
 
             # Debug: Print full response
             if result.thinking:
@@ -146,7 +157,17 @@ class LLMClient(ABC):
         errors: list[ParseError] = []
 
         for attempt in range(1, max_retries + 1):
-            result = await self.acomplete(system, user)
+            try:
+                result = await self.acomplete(system, user)
+            except Exception as e:
+                error_msg = f"{type(e).__name__}: {e}"
+                errors.append(
+                    ParseError(raw_response="", error_message=error_msg, attempt=attempt)
+                )
+                logger.warning(
+                    f"API error (attempt {attempt}/{max_retries}): {error_msg}"
+                )
+                continue
 
             choice = self._parse_choice(result.text)
 
@@ -234,6 +255,10 @@ class AnthropicClient(LLMClient):
         "additionalProperties": False,
     }
 
+    # Per-request HTTP timeout (seconds). Generous enough for extended thinking,
+    # short enough to kill truly stuck connections instead of hanging a worker.
+    REQUEST_TIMEOUT = 300.0
+
     def __init__(self, params: LLMParams, api_key: str | None = None) -> None:
         """Initialize Anthropic client.
 
@@ -242,8 +267,8 @@ class AnthropicClient(LLMClient):
             api_key: API key (if None, uses ANTHROPIC_API_KEY env var)
         """
         self.params = params
-        self.client = Anthropic(api_key=api_key)
-        self.async_client = AsyncAnthropic(api_key=api_key)
+        self.client = Anthropic(api_key=api_key, timeout=self.REQUEST_TIMEOUT)
+        self.async_client = AsyncAnthropic(api_key=api_key, timeout=self.REQUEST_TIMEOUT)
 
     def _supports_adaptive_thinking(self) -> bool:
         """Check if current model supports adaptive thinking."""
@@ -400,6 +425,10 @@ class OpenRouterClient(LLMClient):
     # Response format for structured output (json_object is broadly supported across OpenRouter models)
     CHOICE_RESPONSE_FORMAT = {"type": "json_object"}
 
+    # Per-request HTTP timeout (seconds). Generous enough for extended reasoning,
+    # short enough to kill truly stuck connections instead of hanging a worker.
+    REQUEST_TIMEOUT = 300.0
+
     def __init__(self, params: LLMParams, api_key: str | None = None) -> None:
         """Initialize OpenRouter client.
 
@@ -413,10 +442,12 @@ class OpenRouterClient(LLMClient):
         self.client = OpenAI(
             api_key=api_key,
             base_url="https://openrouter.ai/api/v1",
+            timeout=self.REQUEST_TIMEOUT,
         )
         self.async_client = AsyncOpenAI(
             api_key=api_key,
             base_url="https://openrouter.ai/api/v1",
+            timeout=self.REQUEST_TIMEOUT,
         )
 
     def _supports_reasoning(self) -> bool:
