@@ -26,4 +26,5 @@ user_prompt: |
   {decision_block}
 
 # replicates human instructions in an LLM-friendly format, no-feedback variant
-# removed: any mention of turns
+# removed: any mention of turn spending
+# kept the history block

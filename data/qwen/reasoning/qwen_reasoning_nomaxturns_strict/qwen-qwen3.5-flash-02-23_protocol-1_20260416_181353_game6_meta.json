@@ -1,0 +1,45 @@
+{
+  "run_timestamp": "20260416_181353",
+  "outcome": "win",
+  "error": null,
+  "task_params": {
+    "p_reward": 0.45,
+    "p_switch": 0.15,
+    "travel_cost": 0,
+    "max_turns": 500,
+    "max_points": 400,
+    "points_per_hit": 10,
+    "immediate_feedback": false
+  },
+  "llm_params": {
+    "provider": "openrouter",
+    "model": "qwen/qwen3.5-flash-02-23",
+    "temperature": 0.6,
+    "max_tokens": 16000,
+    "thinking_mode": "enabled",
+    "thinking_budget": 1500
+  },
+  "summary_stats": {
+    "total_turns": 196,
+    "final_score": 400,
+    "monster_life_remaining": 0,
+    "total_hits": 40,
+    "total_fires": 138,
+    "hit_rate": 0.2898550724637681,
+    "total_switches": 58,
+    "correct_switches": 36,
+    "incorrect_switches": 22
+  },
+  "parse_error_count": 0,
+  "parse_errors": [],
+  "prompts_used": {
+    "template_file": "latest_no_feedback_no_max_2",
+    "system": "You are a game-playing agent. Read the game state and make a choice: \"A\" or \"B\".\n",
+    "user_template": "=== THE WITCH AND THE MONSTER ===\n\nIn this game, you will control a little witch on a quest to find and defeat a monster hiding behind a castle.\n\nRULES:\n- The monster hides behind one of two towers: the LEFT tower or the RIGHT tower.\n- Whenever the little witch reaches either tower, she is able to attempt to find the monster by firing at the wall.\n- Once you're in a tower, you can choose to fire.\n- You can move the witch to the right or the left tower of the castle. \n- Each hit reduces the monster's life by {points_per_hit} points.\n\nGOAL:\nReduce the monster's life to 0. The monster starts with {max_points} life points.\n\n{history_block}\n\n=== CURRENT STATE ===\nMonster life: {current_life}/{max_points}\nCurrent turn: {current_turn}\n{location_line}\n\n{decision_block}\n"
+  },
+  "files": {
+    "csv": "data/qwen-qwen3.5-flash-02-23_protocol-1_20260416_181353_game6.csv",
+    "metadata": "data/qwen-qwen3.5-flash-02-23_protocol-1_20260416_181353_game6_meta.json",
+    "llm_log": "data/qwen-qwen3.5-flash-02-23_protocol-1_20260416_181353_game6_llm.jsonl"
+  }
+}
